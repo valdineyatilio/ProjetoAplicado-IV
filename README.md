@@ -1,5 +1,5 @@
 # Projeto Aplicado IV
-## Repositorio destinado ao traballho de projeto aplicado III. Ciências de dados - Mackenzie
+## Repositorio destinado ao traballho de projeto aplicado IV. Ciências de dados - Mackenzie
 
 | Alunos | RA |
 | --- | --- |
