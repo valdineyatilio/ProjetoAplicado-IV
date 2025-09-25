@@ -19,6 +19,7 @@ def impute_missing_values(df, method="interpolate"):
     """
     Imputa valores faltantes nas colunas numéricas com segurança.
     """
+    df = df.infer_objects(copy=False)  # Converte objetos para tipos numéricos onde possível
     num_cols = df.select_dtypes(include=["number"]).columns
     df[num_cols] = df[num_cols].astype(float)
 
