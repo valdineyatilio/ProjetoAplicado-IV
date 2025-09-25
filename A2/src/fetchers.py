@@ -1,56 +1,69 @@
-import pandas as pd
-import numpy as np
 import requests
-from datetime import datetime
+import pandas as pd
 
-def fetch_inmet_climate(station_codes, start_date, end_date):
-    """
-    Coleta dados climáticos semanais de estações INMET.
-    """
-    all_data = []
-
-    for station in station_codes:
+def fetch_inmet_climate(
+    station_ids: list[str],
+    start: str,
+    end: str,
+    base_url: str = "https://apitempo.inmet.gov.br/estacao"
+) -> pd.DataFrame:
+    frames = []
+    for st in station_ids:
+        url = f"{base_url}/{st}/dados"
         try:
-            url = f"https://apitempo.inmet.gov.br/estacao/{start_date}/{end_date}/{station}"
-            response = requests.get(url)
-            if response.status_code != 200:
+            resp = requests.get(url, params={"dataInicial": start, "dataFinal": end}, timeout=10)
+            if resp.status_code != 200:
+                print(f"[WARN] Estação {st} retornou status {resp.status_code}. Pulando.")
                 continue
-
-            raw = pd.DataFrame(response.json())
-            raw["datahora"] = pd.to_datetime(raw["data"])
-            raw["year"] = raw["datahora"].dt.isocalendar().year
-            raw["week"] = raw["datahora"].dt.isocalendar().week
-            raw["station"] = station
-
-            weekly = raw.groupby(["year", "week", "station"], as_index=False).agg({
-                "tmed": "mean",
-                "prec": "sum"
-            }).rename(columns={"tmed": "t_mean", "prec": "precip_sum"})
-
-            all_data.append(weekly)
-
+            raw_json = resp.json()
+            if not raw_json:
+                print(f"[WARN] Sem dados na estação {st}. Pulando.")
+                continue
         except Exception as e:
-            print(f" Erro ao coletar dados da estação {station}: {e}")
+            print(f"[WARN] Erro na estação {st}: {e}. Pulando.")
+            continue
 
-    if all_data:
-        return pd.concat(all_data, ignore_index=True)
-    else:
+        df = pd.DataFrame(raw_json)
+        df["datahora"] = pd.to_datetime(df["datahora"])
+        df.set_index("datahora", inplace=True)
+
+        weekly = (
+            df[["temp", "prec"]]
+            .rename(columns={"temp": "t_mean", "prec": "precip_sum"})
+            .resample("W-MON")
+            .agg({"t_mean": "mean", "precip_sum": "sum"})
+            .reset_index()
+        )
+        weekly["station"] = st
+        weekly["year"] = weekly["datahora"].dt.isocalendar().year
+        weekly["week"] = weekly["datahora"].dt.isocalendar().week
+        frames.append(weekly)
+
+    if not frames:
+        print("[WARN] Nenhuma estação retornou dados válidos.")
         return pd.DataFrame()
 
-def fetch_ibge_population_density():
-    """
-    Coleta densidade populacional dos municípios via API SIDRA.
-    """
-    try:
-        url = "https://apisidra.ibge.gov.br/values/t/9514/n6/all/v/93/p/2022/c315/7169"
-        df = pd.read_json(url)
+    return pd.concat(frames, ignore_index=True)
 
-        df.columns = [col.lower().strip().replace(" ", "_") for col in df.columns]
-        df["municipio_id"] = df["localidade"].str.extract(r"(\d+)")
-        df["pop_density"] = pd.to_numeric(df["valor"], errors="coerce")
 
-        return df[["municipio_id", "pop_density"]]
+def fetch_ibge_population_density(
+    municipio_ids: list[int],
+    year: int,
+    base_url: str = "https://servicodados.ibge.gov.br/api/v3/agregados/6579"
+) -> pd.DataFrame:
+    records = []
+    for m in municipio_ids:
+        url = f"{base_url}/periodos/{year}/variaveis/9324?localidades=N3[{m}]"
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code != 200:
+                print(f"[WARN] IBGE retornou status {resp.status_code} para município {m}. Pulando.")
+                continue
+            data = resp.json()[0]["resultados"][0]["series"][0]["serie"]
+            density = float(data.get(str(year), float("nan")))
+            records.append({"municipio_id": m, "pop_density": density})
+        except Exception as e:
+            print(f"[WARN] Erro IBGE para município {m}: {e}. Pulando.")
+            continue
 
-    except Exception as e:
-        print(f" Erro ao acessar dados do IBGE: {e}")
-        return pd.DataFrame()
+    return pd.DataFrame(records)
