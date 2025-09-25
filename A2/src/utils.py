@@ -1,5 +1,6 @@
 import pandas as pd
 from datetime import datetime
+from sklearn.preprocessing import MinMaxScaler
 
 def normalize_column_names(df):
     """
@@ -14,18 +15,33 @@ def build_iso_date(year, week):
     """
     return datetime.fromisocalendar(int(year), int(week), 1)
 
-def impute_missing_values(df, method="mean"):
+def impute_missing_values(df, method="interpolate"):
     """
-    Imputa valores faltantes usando média, mediana ou interpolação.
+    Imputa valores faltantes nas colunas numéricas com segurança.
     """
+    num_cols = df.select_dtypes(include=["number"]).columns
+    df[num_cols] = df[num_cols].astype(float)
+
     if method == "mean":
-        return df.fillna(df.mean())
+        df[num_cols] = df[num_cols].fillna(df[num_cols].mean())
     elif method == "median":
-        return df.fillna(df.median())
+        df[num_cols] = df[num_cols].fillna(df[num_cols].median())
     elif method == "interpolate":
-        return df.interpolate()
+        df[num_cols] = df[num_cols].interpolate(method="linear").ffill().bfill()
     else:
         raise ValueError("Método inválido. Use 'mean', 'median' ou 'interpolate'.")
+
+    return df
+
+def remove_outliers_zscore(df, columns, threshold=3):
+    """
+    Remove outliers com base no z-score para colunas especificadas.
+    """
+    for col in columns:
+        if col in df.columns:
+            z = (df[col] - df[col].mean()) / df[col].std()
+            df = df[z.abs() <= threshold]
+    return df
 
 def create_lag_features(df, column, lags=[1, 2, 3, 4]):
     """
@@ -40,4 +56,12 @@ def create_rolling_features(df, column, window=4):
     Cria média móvel para uma variável temporal.
     """
     df[f"{column}_roll{window}"] = df[column].rolling(window=window).mean()
+    return df
+
+def normalize_numeric_columns(df, columns):
+    """
+    Aplica MinMaxScaler nas colunas numéricas especificadas.
+    """
+    scaler = MinMaxScaler()
+    df[columns] = scaler.fit_transform(df[columns])
     return df
